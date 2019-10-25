@@ -60,8 +60,10 @@ from tf_agents.replay_buffers import tf_uniform_replay_buffer
 from tf_agents.utils import common
 from tf_agents.utils import episode_utils
 from tf_agents.trajectories.time_step import TimeStep
+from tensorflow.python.framework.tensor_spec import TensorSpec, BoundedTensorSpec
 import numpy as np
 from IPython import embed
+import collections
 
 
 flags.DEFINE_string('root_dir', os.getenv('TEST_UNDECLARED_OUTPUTS_DIR'),
@@ -154,8 +156,6 @@ class InferenceEngine(object):
     def __init__(
         self,
         root_dir,
-        gpu=0,
-        env_load_fn=None,
         conv_layer_params=None,
         encoder_fc_layers=[256],
         actor_fc_layers=[256, 256],
@@ -184,14 +184,24 @@ class InferenceEngine(object):
         root_dir = os.path.expanduser(root_dir)
         train_dir = os.path.join(root_dir, 'train')
 
-        tf_py_env = env_load_fn(None, 'headless', gpu)
-        tf_env = tf_py_environment.TFPyEnvironment(tf_py_env)
-
-        time_step_spec = tf_env.time_step_spec()
+        time_step_spec = TimeStep(
+            TensorSpec(shape=(), dtype=tf.int32, name='step_type'),
+            TensorSpec(shape=(), dtype=tf.float32, name='reward'),
+            BoundedTensorSpec(shape=(), dtype=tf.float32, name='discount',
+                              minimum=np.array(0., dtype=np.float32), maximum = np.array(1., dtype=np.float32)),
+            collections.OrderedDict({
+                'sensor': BoundedTensorSpec(shape=(26,), dtype=tf.float32, name=None,
+                                            minimum=np.array(-3.4028235e+38, dtype=np.float32),
+                                            maximum=np.array(3.4028235e+38, dtype=np.float32)),
+                'depth': BoundedTensorSpec(shape=(60, 80, 1), dtype=tf.float32, name=None,
+                                           minimum=np.array(-3.4028235e+38, dtype=np.float32),
+                                           maximum=np.array(3.4028235e+38, dtype=np.float32)),
+            })
+        )
         observation_spec = time_step_spec.observation
-        action_spec = tf_env.action_spec()
-        print('observation_spec', observation_spec)
-        print('action_spec', action_spec)
+        action_spec = BoundedTensorSpec(shape=(2,), dtype=tf.float32, name=None,
+                                        minimum=np.array(-1.0, dtype=np.float32),
+                                        maximum=np.array(1.0, dtype=np.float32))
 
         glorot_uniform_initializer = tf.compat.v1.keras.initializers.glorot_uniform()
         preprocessing_layers = {
@@ -297,7 +307,6 @@ def main(_):
     logging.set_verbosity(logging.INFO)
 
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-    config_file='../examples/configs/turtlebot_interactive_nav_s2r.yaml'
     root_dir = '/cvgl2/u/chengshu/agents/tf_agents/agents/sac/examples/v1/test_s2r_run_3_pos_ns_0.0_rot_ns_0.0_col_rwd_-0.1_crt_cam_lr_3e-4_eval'
 
     conv_layer_params = [(32, (8, 8), 4), (64, (4, 4), 2), (64, (3, 3), 1)]
@@ -316,19 +325,6 @@ def main(_):
 
     engine = InferenceEngine(
         root_dir=root_dir,
-        gpu=0,
-        env_load_fn=lambda model_id, mode, device_idx: suite_gibson.load(
-            config_file=config_file,
-            model_id=model_id,
-            collision_reward_weight=0.0,
-            env_type='ig_s2r',
-            env_mode=mode,
-            action_timestep=1 / 10.0,
-            physics_timestep=1 / 40.0,
-            device_idx=device_idx,
-            random_position=True,
-            random_height=False,
-        ),
         conv_layer_params=conv_layer_params,
         encoder_fc_layers=encoder_fc_layers,
         actor_fc_layers=actor_fc_layers,
