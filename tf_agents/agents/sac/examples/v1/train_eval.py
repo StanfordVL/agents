@@ -59,6 +59,7 @@ from tf_agents.policies import random_tf_policy
 from tf_agents.replay_buffers import tf_uniform_replay_buffer
 from tf_agents.utils import common
 from tf_agents.utils import episode_utils
+from IPython import embed
 
 
 flags.DEFINE_string('root_dir', os.getenv('TEST_UNDECLARED_OUTPUTS_DIR'),
@@ -254,7 +255,7 @@ def train_eval(
 
         glorot_uniform_initializer = tf.compat.v1.keras.initializers.glorot_uniform()
         preprocessing_layers = {
-            'depth_seg': tf.keras.Sequential(mlp_layers(
+            'depth': tf.keras.Sequential(mlp_layers(
                 conv_layer_params=conv_layer_params,
                 fc_layer_params=encoder_fc_layers,
                 kernel_initializer=glorot_uniform_initializer,
@@ -393,7 +394,6 @@ def train_eval(
         with sess.as_default():
             # Initialize graph.
             train_checkpointer.initialize_or_restore(sess)
-            rb_checkpointer.initialize_or_restore(sess)
 
             if eval_only:
                 metric_utils.compute_summaries(
@@ -412,12 +412,13 @@ def train_eval(
                 for key in sorted(metrics.keys()):
                     print(key, ':', metrics[key])
 
-                save_path = os.path.join(eval_dir, 'episodes.pkl')
+                save_path = os.path.join(eval_dir, 'episodes_eval.pkl')
                 episode_utils.save(episodes, save_path)
                 print('EVAL DONE')
                 return
 
             # Initialize training.
+            rb_checkpointer.initialize_or_restore(sess)
             sess.run(dataset_iterator.initializer)
             common.initialize_uninitialized_variables(sess)
             sess.run(init_agent_op)

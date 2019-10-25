@@ -373,7 +373,6 @@ def train_eval(
         with sess.as_default():
             # Initialize the graph.
             train_checkpointer.initialize_or_restore(sess)
-            rb_checkpointer.initialize_or_restore(sess)
 
             if eval_only:
                 metric_utils.compute_summaries(
@@ -392,12 +391,13 @@ def train_eval(
                 for key in sorted(metrics.keys()):
                     print(key, ':', metrics[key])
 
-                save_path = os.path.join(eval_dir, 'episodes.pkl')
+                save_path = os.path.join(eval_dir, 'episodes_vis.pkl')
                 episode_utils.save(episodes, save_path)
                 print('EVAL DONE')
                 return
 
             # Initialize training.
+            rb_checkpointer.initialize_or_restore(sess)
             sess.run(dataset_iterator.initializer)
             common.initialize_uninitialized_variables(sess)
             sess.run(init_agent_op)

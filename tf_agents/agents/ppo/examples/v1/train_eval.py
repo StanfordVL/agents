@@ -146,10 +146,10 @@ def train_eval(
         num_parallel_environments_eval=1,
         model_ids_eval=None,
         # Params for summaries and logging
-        train_checkpoint_interval=100,
-        policy_checkpoint_interval=50,
-        rb_checkpoint_interval=200,
-        log_interval=50,
+        train_checkpoint_interval=500,
+        policy_checkpoint_interval=500,
+        rb_checkpoint_interval=500,
+        log_interval=10,
         summary_interval=50,
         summaries_flush_secs=1,
         debug_summaries=False,
@@ -368,7 +368,7 @@ def train_eval(
                 for key in sorted(metrics.keys()):
                     print(key, ':', metrics[key])
 
-                save_path = os.path.join(eval_dir, 'episodes.pkl')
+                save_path = os.path.join(eval_dir, 'episodes_eval.pkl')
                 episode_utils.save(episodes, save_path)
                 print('EVAL DONE')
                 return
