@@ -307,7 +307,6 @@ def main(_):
     logging.set_verbosity(logging.INFO)
 
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-    root_dir = '/cvgl2/u/chengshu/agents/tf_agents/agents/sac/examples/v1/test_s2r_run_3_pos_ns_0.0_rot_ns_0.0_col_rwd_-0.1_crt_cam_lr_3e-4_eval'
 
     conv_layer_params = [(32, (8, 8), 4), (64, (4, 4), 2), (64, (3, 3), 1)]
     encoder_fc_layers = [256]
@@ -324,7 +323,7 @@ def main(_):
     print('critic_joint_fc_layers', critic_joint_fc_layers)
 
     engine = InferenceEngine(
-        root_dir=root_dir,
+        root_dir=FLAGS.root_dir,
         conv_layer_params=conv_layer_params,
         encoder_fc_layers=encoder_fc_layers,
         actor_fc_layers=actor_fc_layers,
@@ -345,5 +344,4 @@ def main(_):
 
 if __name__ == '__main__':
     flags.mark_flag_as_required('root_dir')
-    flags.mark_flag_as_required('config_file')
     app.run(main)
