@@ -298,7 +298,7 @@ def main(_):
 
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     config_file='../examples/configs/turtlebot_interactive_nav_s2r.yaml'
-    root_dir = 'test_s2r_run_3_pos_ns_0.0_rot_ns_0.0_col_rwd_-0.1_crt_cam_lr_3e-4_eval'
+    root_dir = '/cvgl2/u/chengshu/agents/tf_agents/agents/sac/examples/v1/test_s2r_run_3_pos_ns_0.0_rot_ns_0.0_col_rwd_-0.1_crt_cam_lr_3e-4_eval'
 
     conv_layer_params = [(32, (8, 8), 4), (64, (4, 4), 2), (64, (3, 3), 1)]
     encoder_fc_layers = [256]
