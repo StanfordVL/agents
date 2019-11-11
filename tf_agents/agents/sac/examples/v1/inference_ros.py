@@ -37,6 +37,8 @@ from absl import app
 from absl import flags
 from absl import logging
 
+from tf import TransformListener, transformations
+
 import gin
 import tensorflow as tf
 
@@ -67,9 +69,9 @@ import collections
 
 import rospy
 from std_msgs.msg import Float32, Int64
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, PoseWithCovarianceStamped
 from sensor_msgs.msg import Image, CameraInfo, CompressedImage
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import Odometry, Path
 import rospkg
 from cv_bridge import CvBridge
 import cv2
@@ -369,20 +371,103 @@ def main(_):
             )
 
             self.obs = {'depth': np.ones((1, 60, 80, 1)), 'sensor': np.ones((1, 26))}
+            self.pose = None
             rospy.init_node('inference-engine') #initialize ros node
+
+            # publisher(s)
             self.velocity_publisher = rospy.Publisher('/cmd_vel_mux/input/nn', Twist, queue_size=10)
 
+            # subscriber(s)
             self.bridge = CvBridge()
             rospy.Subscriber("/camera/depth/image/compressedDepth", CompressedImage, self.depth_callback)
+            self.last_time_depth_update = time.time()
 
+            rospy.Subscriber('/amcl_pose', PoseWithCovarianceStamped, self.amcl_callback)
+            self.last_time_pose_update = time.time()
+
+            rospy.Subscriber('/move_base/DWAPlannerROS/global_plan', Path, self.global_plan_callback)
+            self.last_time_global_plan_update = time.time()
+
+            self.tf_listener_ = TransformListener()
+
+
+        def fromTranslationRotation(self, translation, rotation):
+            """
+            :param translation: translation expressed as a tuple (x,y,z)
+            :param rotation: rotation quaternion expressed as a tuple (x,y,z,w)
+            :return: a :class:`numpy.matrix` 4x4 representation of the transform
+            :raises: any of the exceptions that :meth:`~tf.Transformer.lookupTransform` can raise
+            
+            Converts a transformation from :class:`tf.Transformer` into a representation as a 4x4 matrix.
+            """
+
+            return np.dot(transformations.translation_matrix(translation), transformations.quaternion_matrix(rotation))
+
+
+        def global_plan_callback(self, msg):
+            
+            t = self.tf_listener_.getLatestCommonTime("/base_link", "/odom")
+            position, quaternion = self.tf_listener_.lookupTransform("/base_link", "/odom", t)
+            mat44 = self.fromTranslationRotation(position, quaternion)
+            goal = msg.poses[-1]
+
+            if len(msg.poses) > 100:
+                poses = msg.poses[:100]
+            else:
+                poses = msg.poses
+
+            poses = poses[::10]
+            while len(poses) < 10:
+                poses.append(poses[-1])
+
+            plan = []
+
+            for pose in poses:
+                #x,y = pose.pose.position.x, pose.pose.position.y
+                #print(x,y)
+                p = pose.pose.position
+
+                #plan_in_base = self.tf_listener_.transformPose("/base_link", pose)
+                xy = tuple(np.dot(mat44, np.array([p.x, p.y, p.z, 1.0])))[:2]
+                plan.append(xy)
+            
+            goal_p = goal.pose.position
+            goal_xy = tuple(np.dot(mat44, np.array([p.x, p.y, p.z, 1.0])))[:2]
+
+            #print(plan)
+            #print(goal_xy)
+
+            for i in range(10):
+                self.obs["sensor"][0,i * 2] = plan[i][0]
+                self.obs["sensor"][0,i * 2 + 1] = plan[i][1]
+
+            self.obs["sensor"][0,20] = goal_xy[0]
+            self.obs["sensor"][0,21] = goal_xy[1]
+
+            self.last_time_global_plan_update = time.time()
+
+        def amcl_callback(self, msg):
+            #print('amcl_callback')
+            self.pose = msg.pose.pose
+            #print(time.time() - self.last_time_pose_update)
+            #print(self.pose)
+            self.last_time_pose_update = time.time()
+
+            (lin, ang) = self.tf_listener_.lookupTwist('/base_link', '/odom', rospy.Time(0.0), rospy.Duration(0.5))
+            
+            self.obs["sensor"][0,22] = lin[0]
+            self.obs["sensor"][0,23] = lin[1]
+            self.obs["sensor"][0,24] = ang[0]
+            self.obs["sensor"][0,25] = ang[1]
 
         def depth_callback(self, msg):
+            # print('depth_callback')
             depth_header_size = 12
             raw_data = msg.data[depth_header_size:]
             raw_header = msg.data[:depth_header_size]
 
             [compfmt, depthQuantA, depthQuantB] = struct.unpack('iff', raw_header)
-            print(compfmt, depthQuantA, depthQuantB)
+            # print(compfmt, depthQuantA, depthQuantB)
             np_arr = np.fromstring(raw_data, np.uint8)
             #print(np_arr)
             #print(len(np_arr))
@@ -397,20 +482,34 @@ def main(_):
             depth_img_m[depth_img_m > 4] = -1
             depth_img_m[depth_img_m < 0.6] = -1
 
-            print(np.max(depth_img_m), np.min(depth_img_m), np.mean(depth_img_m), image_np.shape)
+            # print(np.max(depth_img_m), np.min(depth_img_m), np.mean(depth_img_m), image_np.shape)
             self.obs['depth'] = depth_img_m[None, :, :, None]
-
-            #cv2.imshow('test', depth_img_mm * 100)
-            #cv2.waitKey(10)
+            # print(time.time() - self.last_time_depth_update)
+            self.last_time_depth_update = time.time()
+            cv2.imshow('test', depth_img_mm * 100)
+            cv2.waitKey(10)
 
 
         def run(self):
 
             while not rospy.is_shutdown():
+                #print(self.obs["sensor"])
+                #print('depth', np.mean(self.obs["depth"]))
+                self.obs['sensor'] = np.zeros((1, 26))
+                for i in range(10):
+                    self.obs['sensor'][0, i * 2] = i * 0.2
+                self.obs['sensor'][0, 20] = 5.0
+                self.obs['sensor'][0, 21] = 0.0
+                self.obs['sensor'][0, 22] = 0.5
+                self.obs['depth'] = np.ones((1, 60, 80, 1)) * 3.0
+
                 action = self.engine.inference(self.obs)
+                real_action = action * 0.15 / 2.0 + 0.025
+                print('action', action)
+                print('real_action', real_action)
                 vel_msg = Twist()
-                vel_msg.linear.x = (action[0] + action[1]) * 0.1
-                vel_msg.angular.z = (action[0] - action[1]) * 0.2
+                vel_msg.linear.x = (real_action[0] + real_action[1])
+                vel_msg.angular.z = (real_action[0] - real_action[1])
                 self.velocity_publisher.publish(vel_msg)
 
 

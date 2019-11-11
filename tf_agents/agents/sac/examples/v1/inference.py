@@ -43,7 +43,7 @@ import tensorflow as tf
 from tf_agents.agents.ddpg import critic_network
 from tf_agents.agents.sac import sac_agent
 from tf_agents.drivers import dynamic_step_driver
-from tf_agents.environments import suite_gibson
+#from tf_agents.environments import suite_gibson
 from tf_agents.environments import tf_py_environment
 from tf_agents.environments import parallel_py_environment
 from tf_agents.eval import metric_utils
@@ -202,6 +202,8 @@ class InferenceEngine(object):
         action_spec = BoundedTensorSpec(shape=(2,), dtype=tf.float32, name=None,
                                         minimum=np.array(-1.0, dtype=np.float32),
                                         maximum=np.array(1.0, dtype=np.float32))
+        print('observation_spec', observation_spec)
+        print('action_spec', action_spec)
 
         glorot_uniform_initializer = tf.compat.v1.keras.initializers.glorot_uniform()
         preprocessing_layers = {
@@ -268,6 +270,22 @@ class InferenceEngine(object):
             eval_py_policy = py_tf_policy.PyTFPolicy(greedy_policy.GreedyPolicy(tf_agent.policy))
         else:
             eval_py_policy = py_tf_policy.PyTFPolicy(tf_agent.policy)
+
+        def _filter_invalid_transition(trajectories, unused_arg1):
+            return ~trajectories.is_boundary()[0]
+        batch_size = 1
+        replay_buffer = tf_uniform_replay_buffer.TFUniformReplayBuffer(
+            data_spec=tf_agent.collect_data_spec,
+            batch_size=1,
+            max_length=1)
+        dataset = replay_buffer.as_dataset(
+            num_parallel_calls=1,
+            sample_batch_size=1,
+            num_steps=2).apply(tf.data.experimental.unbatch()).filter(
+            _filter_invalid_transition).batch(batch_size).prefetch(1)
+        dataset_iterator = tf.compat.v1.data.make_initializable_iterator(dataset)
+        trajectories, unused_info = dataset_iterator.get_next()
+        train_op = tf_agent.train(trajectories)
 
         train_checkpointer = common.Checkpointer(
             ckpt_dir=train_dir,
@@ -336,11 +354,17 @@ def main(_):
         gamma=1.0,
     )
 
-    obs = {'depth': np.ones((1, 60, 80, 1)), 'sensor': np.ones((1, 26))}
+    obs = {'depth': np.ones((1, 60, 80, 1)), 'sensor': np.zeros((1, 26))}
+    obs['depth'] *= 3.0
+    for i in range(10):
+        obs['sensor'][0, i * 2] = i * 0.2
+    obs['sensor'][0, 20] = 5.0
+    obs['sensor'][0, 21] = 0.0
+    obs['sensor'][0, 22] = 0.5
+    print(obs['sensor'])
     for _ in range(100):
         action = engine.inference(obs)
-    print(action)
-
+        print(action)
 
 if __name__ == '__main__':
     flags.mark_flag_as_required('root_dir')
