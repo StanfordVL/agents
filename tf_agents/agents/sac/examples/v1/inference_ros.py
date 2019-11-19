@@ -333,7 +333,6 @@ class InferenceEngine(object):
 
 
 def main(_):
-
     class InferenceROSNode():
         def __init__(self):
 
@@ -368,28 +367,31 @@ def main(_):
                 critic_learning_rate=0.0,
                 alpha_learning_rate=0.0,
                 gamma=1.0,
+                eval_deterministic=FLAGS.eval_deterministic,
             )
 
             self.obs = {'depth': np.ones((1, 60, 80, 1)), 'sensor': np.ones((1, 26))}
             self.pose = None
             rospy.init_node('inference-engine') #initialize ros node
 
-            # publisher(s)
-            self.velocity_publisher = rospy.Publisher('/cmd_vel_mux/input/nn', Twist, queue_size=10)
-
-            # subscriber(s)
-            self.bridge = CvBridge()
-            rospy.Subscriber("/camera/depth/image/compressedDepth", CompressedImage, self.depth_callback)
-            self.last_time_depth_update = time.time()
-
-            rospy.Subscriber('/amcl_pose', PoseWithCovarianceStamped, self.amcl_callback)
-            self.last_time_pose_update = time.time()
-
-            rospy.Subscriber('/move_base/DWAPlannerROS/global_plan', Path, self.global_plan_callback)
-            self.last_time_global_plan_update = time.time()
-
             self.tf_listener_ = TransformListener()
+            print('tf_listener')
 
+            self.velocity_publisher = rospy.Publisher('/cmd_vel_mux/input/nn', Twist, queue_size=10)
+            print('velocity_publisher')
+
+            self.bridge = CvBridge()
+            rospy.Subscriber("/camera/depth/image/compressedDepth", CompressedImage, self.depth_callback, queue_size=1)
+            self.last_time_depth_update = None
+            print('CvBridge')
+
+            rospy.Subscriber('/amcl_pose', PoseWithCovarianceStamped, self.amcl_callback, queue_size=1)
+            self.last_time_pose_update = None
+            print('amcl_pose')
+
+            rospy.Subscriber('/move_base/DWAPlannerROS/global_plan', Path, self.global_plan_callback, queue_size=1)
+            self.last_time_global_plan_update = None
+            print('global_plan')
 
         def fromTranslationRotation(self, translation, rotation):
             """
@@ -403,9 +405,7 @@ def main(_):
 
             return np.dot(transformations.translation_matrix(translation), transformations.quaternion_matrix(rotation))
 
-
         def global_plan_callback(self, msg):
-            
             t = self.tf_listener_.getLatestCommonTime("/base_link", "/odom")
             position, quaternion = self.tf_listener_.lookupTransform("/base_link", "/odom", t)
             mat44 = self.fromTranslationRotation(position, quaternion)
@@ -453,12 +453,22 @@ def main(_):
             #print(self.pose)
             self.last_time_pose_update = time.time()
 
-            (lin, ang) = self.tf_listener_.lookupTwist('/base_link', '/odom', rospy.Time(0.0), rospy.Duration(0.5))
-            
-            self.obs["sensor"][0,22] = lin[0]
-            self.obs["sensor"][0,23] = lin[1]
-            self.obs["sensor"][0,24] = ang[0]
-            self.obs["sensor"][0,25] = ang[1]
+            #t = self.tf_listener_.getLatestCommonTime("/base_link", "/map")
+            #(trans, rot) = listener.lookupTransform('/map', 'base_link', t)
+            rot = transformations.quaternion_matrix([self.pose.orientation.x, self.pose.orientation.y, self.pose.orientation.z, self.pose.orientation.w])
+
+            (lin, ang) = self.tf_listener_.lookupTwistFull('/base_link', '/map', '/base_link', (0,0,0), '/map', rospy.Time(0.0), rospy.Duration(0.5))
+            #yaw = -rot[2]
+            #lin_in_baselink = np.zeros(2)
+            #lin_in_baselink[0] = np.cos(yaw) * lin[0] - np.sin(yaw) * lin[1]
+            #in_in_baselink[1] = np.sin(yaw) * lin[0] + np.cos(yaw) * lin[1]
+
+            lin_in_baselink = rot.T.dot(np.array([lin[0], lin[1], 0,1]))[:2]
+
+            self.obs["sensor"][0,22] = lin_in_baselink[0]
+            self.obs["sensor"][0,23] = lin_in_baselink[1]
+            self.obs["sensor"][0,24] = 0#ang[0]
+            self.obs["sensor"][0,25] = 0#ang[1]
 
         def depth_callback(self, msg):
             # print('depth_callback')
@@ -477,39 +487,49 @@ def main(_):
             depth_img_scaled[image_np==0] = 0
             depth_img_mm = (depth_img_scaled*1000).astype(np.uint16)
 
-            depth_img_mm = cv2.resize(depth_img_mm,(80,60))
+            depth_img_mm = cv2.resize(depth_img_mm[30:-30, 40:-40],(80,60))
             depth_img_m = depth_img_mm.astype(np.float32) / 1000.0
-            depth_img_m[depth_img_m > 4] = -1
+            depth_img_m[depth_img_m > 4] = 4
             depth_img_m[depth_img_m < 0.6] = -1
 
-            # print(np.max(depth_img_m), np.min(depth_img_m), np.mean(depth_img_m), image_np.shape)
             self.obs['depth'] = depth_img_m[None, :, :, None]
             # print(time.time() - self.last_time_depth_update)
             self.last_time_depth_update = time.time()
-            cv2.imshow('test', depth_img_mm * 100)
+            print(np.max(depth_img_m), np.min(depth_img_m), np.mean(depth_img_m), depth_img_m.shape)
+
+            cv2.imshow('test', (depth_img_m + 1) / 5.0)
             cv2.waitKey(10)
 
 
         def run(self):
 
             while not rospy.is_shutdown():
+                if self.last_time_global_plan_update is None or \
+                   self.last_time_pose_update is None or \
+                   self.last_time_depth_update is None:
+                   continue
                 #print(self.obs["sensor"])
                 #print('depth', np.mean(self.obs["depth"]))
-                self.obs['sensor'] = np.zeros((1, 26))
-                for i in range(10):
-                    self.obs['sensor'][0, i * 2] = i * 0.2
-                self.obs['sensor'][0, 20] = 5.0
-                self.obs['sensor'][0, 21] = 0.0
-                self.obs['sensor'][0, 22] = 0.5
-                self.obs['depth'] = np.ones((1, 60, 80, 1)) * 3.0
+                # self.obs['sensor'] = np.zeros((1, 26))
+                #for i in range(10):
+                #    self.obs['sensor'][0, i * 2] = i * 0.2
+                #    self.obs['sensor'][0, i * 2+1] = 0.0
+                # self.obs['sensor'][0, 20] = 5.0
+                # self.obs['sensor'][0, 21] = 0.0
+                # self.obs['sensor'][0, 22] = 0.5
+                # self.obs['sensor'][0, 23] = 0.0
+                print(self.obs['sensor'][0, 0:24])
+
+                #self.obs['depth'] = np.ones((1, 60, 80, 1)) * 3.0
 
                 action = self.engine.inference(self.obs)
+                # rescale action from [-1, 1] to [-0.05, 0.1]
                 real_action = action * 0.15 / 2.0 + 0.025
                 print('action', action)
                 print('real_action', real_action)
                 vel_msg = Twist()
-                vel_msg.linear.x = (real_action[0] + real_action[1])
-                vel_msg.angular.z = (real_action[0] - real_action[1])
+                vel_msg.linear.x = (real_action[0] + real_action[1]) * 1.5
+                vel_msg.angular.z = -(real_action[0] - real_action[1]) * 6
                 self.velocity_publisher.publish(vel_msg)
 
 

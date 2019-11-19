@@ -352,6 +352,7 @@ def main(_):
         critic_learning_rate=0.0,
         alpha_learning_rate=0.0,
         gamma=1.0,
+        eval_deterministic=FLAGS.eval_deterministic,
     )
 
     obs = {'depth': np.ones((1, 60, 80, 1)), 'sensor': np.zeros((1, 26))}
