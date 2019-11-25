@@ -26,3 +26,4 @@ from tf_agents.utils import tensor_normalizer
 from tf_agents.utils import test_utils
 from tf_agents.utils import timer
 from tf_agents.utils import value_ops
+from tf_agents.utils import episode_utils
