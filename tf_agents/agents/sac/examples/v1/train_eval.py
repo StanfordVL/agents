@@ -193,7 +193,7 @@ def train_eval(
         policy_checkpoint_interval=10000,
         rb_checkpoint_interval=50000,
         log_interval=100,
-        summary_interval=100,
+        summary_interval=1000,
         summaries_flush_secs=10,
         debug_summaries=False,
         summarize_grads_and_vars=False,
@@ -256,11 +256,6 @@ def train_eval(
         glorot_uniform_initializer = tf.compat.v1.keras.initializers.glorot_uniform()
         preprocessing_layers = {
             'depth': tf.keras.Sequential(mlp_layers(
-                conv_layer_params=conv_layer_params,
-                fc_layer_params=encoder_fc_layers,
-                kernel_initializer=glorot_uniform_initializer,
-            )),
-            'rgb': tf.keras.Sequential(mlp_layers(
                 conv_layer_params=conv_layer_params,
                 fc_layer_params=encoder_fc_layers,
                 kernel_initializer=glorot_uniform_initializer,
