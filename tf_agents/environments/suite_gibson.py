@@ -19,7 +19,8 @@ import gin
 from tf_agents.environments import gym_wrapper
 from tf_agents.environments import wrappers
 from gibson2.envs.locomotor_env import NavigateEnv, NavigateRandomEnv
-from gibson2.envs.locomotor_env import InteractiveGibsonNavigateEnv, InteractiveGibsonNavigateSim2RealEnv
+from gibson2.envs.locomotor_env import InteractiveGibsonNavigateEnv#, InteractiveGibsonNavigateSim2RealEnv
+from gibson2.envs.motion_planner_env import MotionPlanningEnv, MotionPlanningBaseArmEnv
 import gibson2
 
 
@@ -60,14 +61,31 @@ def load(config_file,
                                            action_timestep=action_timestep,
                                            physics_timestep=physics_timestep,
                                            device_idx=device_idx)
-    elif env_type =='ig_s2r':
-        env = InteractiveGibsonNavigateSim2RealEnv(config_file=config_file,
-                                                   model_id=model_id,
-                                                   collision_reward_weight=collision_reward_weight,
-                                                   mode=env_mode,
-                                                   action_timestep=action_timestep,
-                                                   physics_timestep=physics_timestep,
-                                                   device_idx=device_idx)
+    #elif env_type =='ig_s2r':
+    #    env = InteractiveGibsonNavigateSim2RealEnv(config_file=config_file,
+    #                                               model_id=model_id,
+    #                                               collision_reward_weight=collision_reward_weight,
+    #                                               mode=env_mode,
+    #                                               action_timestep=action_timestep,
+    #                                               physics_timestep=physics_timestep,
+    #                                               device_idx=device_idx)
+    elif env_type == 'mp':
+        env = MotionPlanningEnv(config_file=config_file,
+                                mode=env_mode,
+                                model_id=model_id,
+                                action_timestep=1e-8,
+                                physics_timestep=1e-8,
+                                device_idx=device_idx)
+
+    elif env_type == 'mp2':
+        env = MotionPlanningBaseArmEnv(config_file=config_file,
+                                mode=env_mode,
+                                model_id=model_id,
+                                action_timestep=1e-8,
+                                physics_timestep=1e-8,
+                                device_idx=device_idx)
+
+
 
     discount = env.discount_factor
     max_episode_steps = env.max_step
