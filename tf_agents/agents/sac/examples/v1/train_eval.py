@@ -45,6 +45,7 @@ from tf_agents.agents.ddpg import critic_network
 from tf_agents.agents.sac import sac_agent
 from tf_agents.drivers import dynamic_step_driver
 from tf_agents.environments import suite_gibson
+from tf_agents.environments import suite_behavior
 from tf_agents.environments import tf_py_environment
 from tf_agents.environments import parallel_py_environment
 from tf_agents.eval import metric_utils
@@ -117,6 +118,8 @@ flags.DEFINE_list('model_ids_eval', None,
                   'len(model_ids) == num_parallel_environments_eval')
 flags.DEFINE_string('env_mode', 'headless',
                     'Mode for the simulator (gui or headless)')
+flags.DEFINE_string('action_filter', 'mobile_manipulation',
+                    'action filter')
 flags.DEFINE_float('action_timestep', 1.0 / 10.0,
                    'Action timestep for the simulator')
 flags.DEFINE_float('physics_timestep', 1.0 / 40.0,
@@ -554,13 +557,12 @@ def main(_):
     train_eval(
         root_dir=FLAGS.root_dir,
         gpu=FLAGS.gpu_g,
-        env_load_fn=lambda model_id, mode, device_idx: suite_gibson.load(
+        env_load_fn=lambda model_id, mode, device_idx: suite_behavior.load(
             config_file=FLAGS.config_file,
             model_id=model_id,
             env_mode=mode,
-            action_timestep=FLAGS.action_timestep,
-            physics_timestep=FLAGS.physics_timestep,
             device_idx=device_idx,
+            action_filter=FLAGS.action_filter
         ),
         model_ids=FLAGS.model_ids,
         eval_env_mode=FLAGS.env_mode,
