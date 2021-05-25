@@ -288,6 +288,13 @@ def train_eval(
                 fc_layer_params=encoder_fc_layers,
                 kernel_initializer=glorot_uniform_initializer,
             ))
+        if 'proprioception' in observation_spec:
+            preprocessing_layers['proprioception'] = tf.keras.Sequential(mlp_layers(
+                conv_1d_layer_params=None,
+                conv_2d_layer_params=None,
+                fc_layer_params=encoder_fc_layers,
+                kernel_initializer=glorot_uniform_initializer,
+            ))
 
         if len(preprocessing_layers) <= 1:
             preprocessing_combiner = None
