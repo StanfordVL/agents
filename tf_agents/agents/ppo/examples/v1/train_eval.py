@@ -44,6 +44,7 @@ from tf_agents.agents.ppo import ppo_agent
 from tf_agents.drivers import dynamic_episode_driver
 from tf_agents.environments import parallel_py_environment
 from tf_agents.environments import suite_gibson
+from tf_agents.environments import suite_behavior_mp
 from tf_agents.environments import tf_py_environment
 from tf_agents.eval import metric_utils
 from tf_agents.metrics import tf_metrics
@@ -100,15 +101,15 @@ flags.DEFINE_list('model_ids', None,
 flags.DEFINE_list('model_ids_eval', None,
                   'A comma-separated list of model ids to overwrite config_file for eval.'
                   'len(model_ids) == num_parallel_environments_eval')
-flags.DEFINE_float('collision_reward_weight', 0.0,
-                   'collision reward weight')
+flags.DEFINE_string('action_filter', 'mobile_manipulation',
+                    'action filter')
 flags.DEFINE_string('env_mode', 'headless',
                     'Mode for the simulator (gui or headless)')
 flags.DEFINE_string('env_type', 'gibson',
                     'Type for the Gibson environment (gibson or ig)')
-flags.DEFINE_float('action_timestep', 1.0 / 10.0,
+flags.DEFINE_float('action_timestep', 1.0 / 300.0,
                    'Action timestep for the simulator')
-flags.DEFINE_float('physics_timestep', 1.0 / 40.0,
+flags.DEFINE_float('physics_timestep', 1.0 / 300.0,
                    'Physics timestep for the simulator')
 flags.DEFINE_integer('gpu_g', 0,
                      'GPU id for graphics, e.g. Gibson.')
@@ -125,7 +126,8 @@ def train_eval(
         env_load_fn=None,
         model_ids=None,
         eval_env_mode='headless',
-        conv_layer_params=None,
+        conv_1d_layer_params=None,
+        conv_2d_layer_params=None,
         encoder_fc_layers=[256],
         actor_fc_layers=[256, 256],
         value_fc_layers=[256, 256],
@@ -214,19 +216,50 @@ def train_eval(
         print('action_spec', action_spec)
 
         glorot_uniform_initializer = tf.compat.v1.keras.initializers.glorot_uniform()
-        preprocessing_layers = {
-            'depth_seg': tf.keras.Sequential(mlp_layers(
-                conv_layer_params=conv_layer_params,
+        preprocessing_layers = {}
+        if 'rgb' in observation_spec:
+            preprocessing_layers['rgb'] = tf.keras.Sequential(mlp_layers(
+                conv_1d_layer_params=None,
+                conv_2d_layer_params=conv_2d_layer_params,
                 fc_layer_params=encoder_fc_layers,
                 kernel_initializer=glorot_uniform_initializer,
-            )),
-            'sensor': tf.keras.Sequential(mlp_layers(
-                conv_layer_params=None,
+            ))
+
+        if 'depth' in observation_spec:
+            preprocessing_layers['depth'] = tf.keras.Sequential(mlp_layers(
+                conv_1d_layer_params=None,
+                conv_2d_layer_params=conv_2d_layer_params,
                 fc_layer_params=encoder_fc_layers,
                 kernel_initializer=glorot_uniform_initializer,
-            )),
-        }
-        preprocessing_combiner = tf.keras.layers.Concatenate(axis=-1)
+            ))
+
+        if 'scan' in observation_spec:
+            preprocessing_layers['scan'] = tf.keras.Sequential(mlp_layers(
+                conv_1d_layer_params=conv_1d_layer_params,
+                conv_2d_layer_params=None,
+                fc_layer_params=encoder_fc_layers,
+                kernel_initializer=glorot_uniform_initializer,
+            ))
+
+        if 'task_obs' in observation_spec:
+            preprocessing_layers['task_obs'] = tf.keras.Sequential(mlp_layers(
+                conv_1d_layer_params=None,
+                conv_2d_layer_params=None,
+                fc_layer_params=encoder_fc_layers,
+                kernel_initializer=glorot_uniform_initializer,
+            ))
+        if 'proprioception' in observation_spec:
+            preprocessing_layers['proprioception'] = tf.keras.Sequential(mlp_layers(
+                conv_1d_layer_params=None,
+                conv_2d_layer_params=None,
+                fc_layer_params=encoder_fc_layers,
+                kernel_initializer=glorot_uniform_initializer,
+            ))
+
+        if len(preprocessing_layers) <= 1:
+            preprocessing_combiner = None
+        else:
+            preprocessing_combiner = tf.keras.layers.Concatenate(axis=-1)
 
         if use_rnns:
             actor_net = actor_distribution_rnn_network.ActorDistributionRnnNetwork(
@@ -467,14 +500,17 @@ def main(_):
 
     os.environ['CUDA_VISIBLE_DEVICES'] = str(FLAGS.gpu_c)
 
-    conv_layer_params = [(32, (8, 8), 4), (64, (4, 4), 2), (64, (3, 3), 1)]
+    # conv_layer_params = [(32, (8, 8), 4), (64, (4, 4), 2), (64, (3, 3), 1)]
+    conv_1d_layer_params = [(32, 8, 4), (64, 4, 2), (64, 3, 1)]
+    conv_2d_layer_params = [(32, (8, 8), 4), (64, (4, 4), 2), (64, (3, 3), 2)]
     encoder_fc_layers = [256]
     actor_fc_layers = [256]
     value_fc_layers = [256]
 
     for k, v in FLAGS.flag_values_dict().items():
         print(k, v)
-    print('conv_layer_params', conv_layer_params)
+    print('conv_1d_layer_params', conv_1d_layer_params)
+    print('conv_2d_layer_params', conv_2d_layer_params)
     print('encoder_fc_layers', encoder_fc_layers)
     print('actor_fc_layers', actor_fc_layers)
     print('value_fc_layers', value_fc_layers)
@@ -483,21 +519,17 @@ def main(_):
     train_eval(
         FLAGS.root_dir,
         gpu=FLAGS.gpu_g,
-        env_load_fn=lambda model_id, mode, device_idx: suite_gibson.load(
+        env_load_fn=lambda model_id, mode, device_idx: suite_behavior_mp.load(
             config_file=FLAGS.config_file,
             model_id=model_id,
-            collision_reward_weight=FLAGS.collision_reward_weight,
-            env_type=FLAGS.env_type,
             env_mode=mode,
-            action_timestep=FLAGS.action_timestep,
-            physics_timestep=FLAGS.physics_timestep,
             device_idx=device_idx,
-            random_position=FLAGS.random_position,
-            random_height=False,
+            action_filter=FLAGS.action_filter
         ),
         model_ids=FLAGS.model_ids,
         eval_env_mode=FLAGS.env_mode,
-        conv_layer_params=conv_layer_params,
+        conv_1d_layer_params=conv_1d_layer_params,
+        conv_2d_layer_params=conv_2d_layer_params,
         encoder_fc_layers=encoder_fc_layers,
         actor_fc_layers=actor_fc_layers,
         value_fc_layers=value_fc_layers,
