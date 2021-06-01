@@ -230,13 +230,13 @@ def train_eval(
             model_ids = [None] * num_parallel_environments
         else:
             assert len(model_ids) == num_parallel_environments, \
-
                 'model ids provided, but length not equal to num_parallel_environments'
 
         if model_ids_eval is None:
             model_ids_eval = [None] * num_parallel_environments_eval
         else:
             assert len(model_ids_eval) == num_parallel_environments_eval, \
+             'model ids eval provided, but length not equal to num_parallel_environments'
 
 
         tf_py_env = [lambda model_id=model_ids[i]: env_load_fn(model_id, 'headless', gpu)
