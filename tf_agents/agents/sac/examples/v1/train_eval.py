@@ -60,6 +60,8 @@ from tf_agents.policies import py_tf_policy
 from tf_agents.policies import random_tf_policy
 from tf_agents.replay_buffers import tf_uniform_replay_buffer
 from tf_agents.utils import common
+from tf_agents.utils import episode_utils
+from IPython import embed
 
 flags.DEFINE_string('root_dir', os.getenv('TEST_UNDECLARED_OUTPUTS_DIR'),
                     'Root directory for writing logs/summaries/checkpoints.')
@@ -228,18 +230,20 @@ def train_eval(
             model_ids = [None] * num_parallel_environments
         else:
             assert len(model_ids) == num_parallel_environments, \
+
                 'model ids provided, but length not equal to num_parallel_environments'
 
         if model_ids_eval is None:
             model_ids_eval = [None] * num_parallel_environments_eval
         else:
             assert len(model_ids_eval) == num_parallel_environments_eval, \
-                'model ids eval provided, but length not equal to num_parallel_environments_eval'
+
 
         tf_py_env = [lambda model_id=model_ids[i]: env_load_fn(model_id, 'headless', gpu)
                      for i in range(num_parallel_environments)]
         tf_env = tf_py_environment.TFPyEnvironment(
             parallel_py_environment.ParallelPyEnvironment(tf_py_env))
+
 
         if eval_env_mode == 'gui':
             assert num_parallel_environments_eval == 1, 'only one GUI env is allowed'
@@ -247,6 +251,7 @@ def train_eval(
                        for i in range(num_parallel_environments_eval)]
         eval_py_env = parallel_py_environment.ParallelPyEnvironment(
             eval_py_env)
+
 
         # Get the data specs from the environment
         time_step_spec = tf_env.time_step_spec()
@@ -300,6 +305,7 @@ def train_eval(
             preprocessing_combiner = None
         else:
             preprocessing_combiner = tf.keras.layers.Concatenate(axis=-1)
+
 
         actor_net = actor_distribution_network.ActorDistributionNetwork(
             observation_spec,
@@ -536,6 +542,239 @@ def train_eval(
         sess.close()
 
 
+        tf_agent = sac_agent.SacAgent(
+            time_step_spec,
+            action_spec,
+            actor_network=actor_net,
+            critic_network=critic_net,
+            actor_optimizer=tf.compat.v1.train.AdamOptimizer(
+                learning_rate=actor_learning_rate),
+            critic_optimizer=tf.compat.v1.train.AdamOptimizer(
+                learning_rate=critic_learning_rate),
+            alpha_optimizer=tf.compat.v1.train.AdamOptimizer(
+                learning_rate=alpha_learning_rate),
+            target_update_tau=target_update_tau,
+            target_update_period=target_update_period,
+            td_errors_loss_fn=td_errors_loss_fn,
+            gamma=gamma,
+            reward_scale_factor=reward_scale_factor,
+            gradient_clipping=gradient_clipping,
+            debug_summaries=debug_summaries,
+            summarize_grads_and_vars=summarize_grads_and_vars,
+            train_step_counter=global_step)
+
+        config = tf.compat.v1.ConfigProto()
+        config.gpu_options.allow_growth = True
+        sess = tf.compat.v1.Session(config=config)
+
+        # Make the replay buffer.
+        replay_buffer = tf_uniform_replay_buffer.TFUniformReplayBuffer(
+            data_spec=tf_agent.collect_data_spec,
+            batch_size=tf_env.batch_size,
+            max_length=replay_buffer_capacity)
+        replay_observer = [replay_buffer.add_batch]
+
+        if eval_deterministic:
+            eval_py_policy = py_tf_policy.PyTFPolicy(greedy_policy.GreedyPolicy(tf_agent.policy))
+        else:
+            eval_py_policy = py_tf_policy.PyTFPolicy(tf_agent.policy)
+
+        step_metrics = [
+            tf_metrics.NumberOfEpisodes(),
+            tf_metrics.EnvironmentSteps(),
+        ]
+        train_metrics = step_metrics + [
+            tf_metrics.AverageReturnMetric(
+                buffer_size=100,
+                batch_size=num_parallel_environments),
+            tf_metrics.AverageEpisodeLengthMetric(
+                buffer_size=100,
+                batch_size=num_parallel_environments),
+        ]
+
+        collect_policy = tf_agent.collect_policy
+        initial_collect_policy = random_tf_policy.RandomTFPolicy(time_step_spec, action_spec)
+
+        initial_collect_op = dynamic_step_driver.DynamicStepDriver(
+            tf_env,
+            initial_collect_policy,
+            observers=replay_observer + train_metrics,
+            num_steps=initial_collect_steps * num_parallel_environments).run()
+
+        collect_op = dynamic_step_driver.DynamicStepDriver(
+            tf_env,
+            collect_policy,
+            observers=replay_observer + train_metrics,
+            num_steps=collect_steps_per_iteration * num_parallel_environments).run()
+
+        # Prepare replay buffer as dataset with invalid transitions filtered.
+        def _filter_invalid_transition(trajectories, unused_arg1):
+            return ~trajectories.is_boundary()[0]
+
+        dataset = replay_buffer.as_dataset(
+            num_parallel_calls=5,
+            sample_batch_size=5 * batch_size,
+            num_steps=2).apply(tf.data.experimental.unbatch()).filter(
+            _filter_invalid_transition).batch(batch_size).prefetch(5)
+        dataset_iterator = tf.compat.v1.data.make_initializable_iterator(dataset)
+        trajectories, unused_info = dataset_iterator.get_next()
+        train_op = tf_agent.train(trajectories)
+
+        summary_ops = []
+        for train_metric in train_metrics:
+            summary_ops.append(train_metric.tf_summaries(
+                train_step=global_step, step_metrics=step_metrics))
+
+        with eval_summary_writer.as_default(), tf.compat.v2.summary.record_if(True):
+            for eval_metric in eval_metrics:
+                eval_metric.tf_summaries(
+                    train_step=global_step, step_metrics=step_metrics)
+
+        train_checkpointer = common.Checkpointer(
+            ckpt_dir=train_dir,
+            agent=tf_agent,
+            global_step=global_step,
+            metrics=metric_utils.MetricsGroup(train_metrics, 'train_metrics'))
+        policy_checkpointer = common.Checkpointer(
+            ckpt_dir=os.path.join(train_dir, 'policy'),
+            policy=tf_agent.policy,
+            global_step=global_step)
+        rb_checkpointer = common.Checkpointer(
+            ckpt_dir=os.path.join(train_dir, 'replay_buffer'),
+            max_to_keep=1,
+            replay_buffer=replay_buffer)
+
+        init_agent_op = tf_agent.initialize()
+        with sess.as_default():
+            # Initialize graph.
+            train_checkpointer.initialize_or_restore(sess)
+
+            if eval_only:
+                metric_utils.compute_summaries(
+                    eval_metrics,
+                    eval_py_env,
+                    eval_py_policy,
+                    num_episodes=num_eval_episodes,
+                    global_step=0,
+                    callback=eval_metrics_callback,
+                    tf_summaries=False,
+                    log=True,
+                )
+                episodes = eval_py_env.get_stored_episodes()
+                episodes = [episode for sublist in episodes for episode in sublist][:num_eval_episodes]
+                metrics = episode_utils.get_metrics(episodes)
+                for key in sorted(metrics.keys()):
+                    print(key, ':', metrics[key])
+
+                save_path = os.path.join(eval_dir, 'episodes_eval.pkl')
+                episode_utils.save(episodes, save_path)
+                print('EVAL DONE')
+                return
+
+            # Initialize training.
+            rb_checkpointer.initialize_or_restore(sess)
+            sess.run(dataset_iterator.initializer)
+            common.initialize_uninitialized_variables(sess)
+            sess.run(init_agent_op)
+            sess.run(train_summary_writer.init())
+            sess.run(eval_summary_writer.init())
+
+            global_step_val = sess.run(global_step)
+
+            if global_step_val == 0:
+                # Initial eval of randomly initialized policy
+                metric_utils.compute_summaries(
+                    eval_metrics,
+                    eval_py_env,
+                    eval_py_policy,
+                    num_episodes=num_eval_episodes,
+                    global_step=0,
+                    callback=eval_metrics_callback,
+                    tf_summaries=True,
+                    log=True,
+                )
+                # Run initial collect.
+                logging.info('Global step %d: Running initial collect op.',
+                             global_step_val)
+                sess.run(initial_collect_op)
+
+                # Checkpoint the initial replay buffer contents.
+                rb_checkpointer.save(global_step=global_step_val)
+
+                logging.info('Finished initial collect.')
+            else:
+                logging.info('Global step %d: Skipping initial collect op.',
+                             global_step_val)
+
+            collect_call = sess.make_callable(collect_op)
+            train_step_call = sess.make_callable([train_op, summary_ops])
+            global_step_call = sess.make_callable(global_step)
+
+            timed_at_step = global_step_call()
+            time_acc = 0
+            steps_per_second_ph = tf.compat.v1.placeholder(
+                tf.float32, shape=(), name='steps_per_sec_ph')
+            steps_per_second_summary = tf.compat.v2.summary.scalar(
+                name='global_steps_per_sec', data=steps_per_second_ph,
+                step=global_step)
+
+            for _ in range(num_iterations):
+                start_time = time.time()
+                collect_call()
+                # print('collect:', time.time() - start_time)
+
+                # train_start_time = time.time()
+                for _ in range(train_steps_per_iteration):
+                    total_loss, _ = train_step_call()
+                # print('train:', time.time() - train_start_time)
+
+                time_acc += time.time() - start_time
+                global_step_val = global_step_call()
+                if global_step_val % log_interval == 0:
+                    logging.info('step = %d, loss = %f', global_step_val, total_loss.loss)
+                    steps_per_sec = (global_step_val - timed_at_step) / time_acc
+                    logging.info('%.3f steps/sec', steps_per_sec)
+                    sess.run(
+                        steps_per_second_summary,
+                        feed_dict={steps_per_second_ph: steps_per_sec})
+                    timed_at_step = global_step_val
+                    time_acc = 0
+
+                if global_step_val % train_checkpoint_interval == 0:
+                    train_checkpointer.save(global_step=global_step_val)
+
+                if global_step_val % policy_checkpoint_interval == 0:
+                    policy_checkpointer.save(global_step=global_step_val)
+
+                if global_step_val % rb_checkpoint_interval == 0:
+                    rb_checkpointer.save(global_step=global_step_val)
+
+                if global_step_val % eval_interval == 0:
+                    metric_utils.compute_summaries(
+                        eval_metrics,
+                        eval_py_env,
+                        eval_py_policy,
+                        num_episodes=num_eval_episodes,
+                        global_step=0,
+                        callback=eval_metrics_callback,
+                        tf_summaries=True,
+                        log=True,
+                    )
+                    with eval_summary_writer.as_default(), tf.compat.v2.summary.record_if(True):
+                        with tf.name_scope('Metrics/'):
+                            episodes = eval_py_env.get_stored_episodes()
+                            episodes = [episode for sublist in episodes for episode in sublist][:num_eval_episodes]
+                            metrics = episode_utils.get_metrics(episodes)
+                            for key in sorted(metrics.keys()):
+                                print(key, ':', metrics[key])
+                                metric_op = tf.compat.v2.summary.scalar(name=key,
+                                                                        data=metrics[key],
+                                                                        step=global_step_val)
+                                sess.run(metric_op)
+                    sess.run(eval_summary_flush_op)
+
+        sess.close()
+
 def main(_):
     tf.compat.v1.enable_resource_variables()
     logging.set_verbosity(logging.INFO)
@@ -545,6 +784,7 @@ def main(_):
 
     conv_1d_layer_params = [(32, 8, 4), (64, 4, 2), (64, 3, 1)]
     conv_2d_layer_params = [(32, (8, 8), 4), (64, (4, 4), 2), (64, (3, 3), 2)]
+
     encoder_fc_layers = [256]
     actor_fc_layers = [256]
     critic_obs_fc_layers = [256]

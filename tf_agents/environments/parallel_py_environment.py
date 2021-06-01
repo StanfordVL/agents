@@ -180,6 +180,11 @@ class ParallelPyEnvironment(py_environment.PyEnvironment):
     # Block until all envs are seeded.
     return [promise() for promise in promises]
 
+  def get_stored_episodes(self):
+    promises = [env.call('get_stored_episodes') for env in self._envs]
+    # Block until all envs return
+    return [promise() for promise in promises]
+
 
 class ProcessPyEnvironment(object):
   """Step a single env in a separate process for lock free paralellism."""

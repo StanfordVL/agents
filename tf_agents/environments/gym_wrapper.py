@@ -171,6 +171,9 @@ class GymWrapper(py_environment.PyEnvironment):
     """Returns the gym environment info returned on the last step."""
     return self._info
 
+  def get_success_rate(self):
+    return self._gym_env.get_success_rate()
+
   def _reset(self):
     # TODO(oars): Upcoming update on gym adds **kwargs on reset. Update this to
     # support that.

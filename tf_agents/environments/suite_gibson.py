@@ -55,7 +55,7 @@ def load(config_file,
     )
 
 
-@ gin.configurable
+@gin.configurable
 def wrap_env(env,
              discount=1.0,
              max_episode_steps=0,
@@ -66,6 +66,7 @@ def wrap_env(env,
              auto_reset=True):
     for wrapper in gym_env_wrappers:
         env = wrapper(env)
+
     env = gym_wrapper.GymWrapper(
         env,
         discount=discount,
