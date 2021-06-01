@@ -25,5 +25,5 @@ python -u train_eval.py \
     --gpu_c $gpu_c \
     --gpu_g $gpu_g \
     --num_parallel_environments 6 \
-    --model_ids Rs_int, Rs_int, Rs_int, Rs_int, Rs_int, Rs_int \
+    --model_ids Rs_int,Rs_int,Rs_int,Rs_int,Rs_int,Rs_int \
     --action_filter mobile_manipulation

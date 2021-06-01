@@ -395,15 +395,15 @@ def train_eval(
                     tf_summaries=False,
                     log=True,
                 )
-                episodes = eval_py_env.get_stored_episodes()
-                episodes = [episode for sublist in episodes for episode in sublist][:num_eval_episodes]
-                metrics = episode_utils.get_metrics(episodes)
-                for key in sorted(metrics.keys()):
-                    print(key, ':', metrics[key])
+                #episodes = eval_py_env.get_stored_episodes()
+                #episodes = [episode for sublist in episodes for episode in sublist][:num_eval_episodes]
+                #metrics = episode_utils.get_metrics(episodes)
+                #for key in sorted(metrics.keys()):
+                #    print(key, ':', metrics[key])
 
-                save_path = os.path.join(eval_dir, 'episodes_eval.pkl')
-                episode_utils.save(episodes, save_path)
-                print('EVAL DONE')
+                #save_path = os.path.join(eval_dir, 'episodes_eval.pkl')
+                #episode_utils.save(episodes, save_path)
+                #print('EVAL DONE')
                 return
 
             common.initialize_uninitialized_variables(sess)
@@ -433,17 +433,17 @@ def train_eval(
                         callback=eval_metrics_callback,
                         log=True,
                     )
-                    with eval_summary_writer.as_default(), tf.compat.v2.summary.record_if(True):
-                        with tf.name_scope('Metrics/'):
-                            episodes = eval_py_env.get_stored_episodes()
-                            episodes = [episode for sublist in episodes for episode in sublist][:num_eval_episodes]
-                            metrics = episode_utils.get_metrics(episodes)
-                            for key in sorted(metrics.keys()):
-                                print(key, ':', metrics[key])
-                                metric_op = tf.compat.v2.summary.scalar(name=key,
-                                                                        data=metrics[key],
-                                                                        step=global_step_val)
-                                sess.run(metric_op)
+                    # with eval_summary_writer.as_default(), tf.compat.v2.summary.record_if(True):
+                        #with tf.name_scope('Metrics/'):
+                        #    episodes = eval_py_env.get_stored_episodes()
+                        #    episodes = [episode for sublist in episodes for episode in sublist][:num_eval_episodes]
+                        #    metrics = episode_utils.get_metrics(episodes)
+                        #    for key in sorted(metrics.keys()):
+                        #        print(key, ':', metrics[key])
+                        #        metric_op = tf.compat.v2.summary.scalar(name=key,
+                        #                                                data=metrics[key],
+                        #                                                step=global_step_val)
+                        #        sess.run(metric_op)
                     sess.run(eval_summary_writer_flush_op)
 
                 start_time = time.time()
