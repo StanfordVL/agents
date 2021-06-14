@@ -161,6 +161,11 @@ def train_eval(
     if root_dir is None:
         raise AttributeError('train_eval requires a root_dir.')
 
+
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    for g in gpus:
+        tf.config.experimental.set_memory_growth(g, True)
+
     root_dir = os.path.expanduser(root_dir)
     train_dir = os.path.join(root_dir, 'train')
     eval_dir = os.path.join(root_dir, 'eval')

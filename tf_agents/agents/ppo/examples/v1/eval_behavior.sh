@@ -20,10 +20,12 @@ python -u train_eval.py \
     --root_dir $log_dir \
     --config_file $config_file \
     --replay_buffer_capacity 10000 \
-    --num_eval_episodes 2 \
+    --num_eval_episodes 200 \
     --eval_interval 10000000 \
     --gpu_c $gpu_c \
     --gpu_g $gpu_g \
-    --num_parallel_environments 6 \
-    --model_ids Rs_int,Rs_int,Rs_int,Rs_int,Rs_int,Rs_int \
-    --action_filter mobile_manipulation
+    --num_parallel_environments 1 \
+    --model_ids Rs_int \
+    --action_filter mobile_manipulation \
+    --env_mode gui \
+    --eval_only

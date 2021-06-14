@@ -18,7 +18,7 @@ import gin
 
 from tf_agents.environments import gym_wrapper
 from tf_agents.environments import wrappers
-from gibson2.envs.behavior_env import BehaviorEnv
+from gibson2.envs.behavior_mp_env import BehaviorMPEnv
 import gibson2
 
 
@@ -32,13 +32,15 @@ def load(config_file,
          env_wrappers=(),
          spec_dtype_map=None):
     config_file = os.path.join(os.path.dirname(gibson2.__file__), config_file)
-    env = BehaviorEnv(config_file=config_file,
+    env = BehaviorMPEnv(config_file=config_file,
                      mode=env_mode,
+                     action_timestep=1.0 / 300.0,
+                     physics_timestep=1.0 / 300.0,
                      action_filter=action_filter,
                      device_idx=device_idx)
 
     discount = env.config.get('discount_factor', 0.99)
-    max_episode_steps = env.config.get('max_step', 500)
+    max_episode_steps = env.config.get('max_step', 100)
 
     return wrap_env(
         env,
@@ -52,7 +54,7 @@ def load(config_file,
     )
 
 
-@ gin.configurable
+@gin.configurable
 def wrap_env(env,
              discount=1.0,
              max_episode_steps=0,
