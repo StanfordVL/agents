@@ -28,6 +28,7 @@ def load(config_file,
          env_mode='headless',
          device_idx=0,
          action_filter='mobile_manipulation',
+         use_motion_planning=False,
          gym_env_wrappers=(),
          env_wrappers=(),
          spec_dtype_map=None):
@@ -37,7 +38,8 @@ def load(config_file,
                      action_timestep=1.0 / 300.0,
                      physics_timestep=1.0 / 300.0,
                      action_filter=action_filter,
-                     device_idx=device_idx)
+                     device_idx=device_idx,
+                     use_motion_planning=use_motion_planning)
 
     discount = env.config.get('discount_factor', 0.99)
     max_episode_steps = env.config.get('max_step', 100)

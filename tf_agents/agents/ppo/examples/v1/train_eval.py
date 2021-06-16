@@ -89,6 +89,8 @@ flags.DEFINE_boolean('eval_only', False,
                      'Whether to run evaluation only on trained checkpoints')
 flags.DEFINE_boolean('eval_deterministic', False,
                      'Whether to run evaluation using a deterministic policy')
+flags.DEFINE_boolean('motion_planning', False,
+                     'Whether to use motion_planning')
 flags.DEFINE_integer('gpu_c', 0,
                      'GPU id for compute, e.g. Tensorflow.')
 
@@ -529,7 +531,8 @@ def main(_):
             model_id=model_id,
             env_mode=mode,
             device_idx=device_idx,
-            action_filter=FLAGS.action_filter
+            action_filter=FLAGS.action_filter,
+            use_motion_planning=FLAGS.motion_planning
         ),
         model_ids=FLAGS.model_ids,
         eval_env_mode=FLAGS.env_mode,
