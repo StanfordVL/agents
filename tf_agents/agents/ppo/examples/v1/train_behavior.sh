@@ -1,4 +1,4 @@
-gpu_c="0"
+gpu_c="1"
 gpu_g="0"
 
 if [[ -z "${CONFIG_FILE}" ]]; then
