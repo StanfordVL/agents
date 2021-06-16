@@ -172,6 +172,11 @@ def train_eval(
     train_dir = os.path.join(root_dir, 'train')
     eval_dir = os.path.join(root_dir, 'eval')
 
+    os.makedirs(train_dir, exist_ok=True)
+    os.makedirs(eval_dir, exist_ok=True)
+
+
+
     train_summary_writer = tf.compat.v2.summary.create_file_writer(
         train_dir, flush_millis=summaries_flush_secs * 1000)
     train_summary_writer.set_as_default()
@@ -402,15 +407,15 @@ def train_eval(
                     tf_summaries=False,
                     log=True,
                 )
-                #episodes = eval_py_env.get_stored_episodes()
-                #episodes = [episode for sublist in episodes for episode in sublist][:num_eval_episodes]
-                #metrics = episode_utils.get_metrics(episodes)
-                #for key in sorted(metrics.keys()):
-                #    print(key, ':', metrics[key])
+                episodes = eval_py_env.get_stored_episodes()
+                episodes = [episode for sublist in episodes for episode in sublist][:num_eval_episodes]
+                metrics = episode_utils.get_metrics(episodes)
+                for key in sorted(metrics.keys()):
+                    print(key, ':', metrics[key])
 
-                #save_path = os.path.join(eval_dir, 'episodes_eval.pkl')
-                #episode_utils.save(episodes, save_path)
-                #print('EVAL DONE')
+                save_path = os.path.join(eval_dir, 'episodes_eval.pkl')
+                episode_utils.save(episodes, save_path)
+                print('EVAL DONE')
                 return
 
             common.initialize_uninitialized_variables(sess)
